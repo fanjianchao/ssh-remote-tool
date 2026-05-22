@@ -1,0 +1,22 @@
+# SSH Remote Tool - 依赖清单
+
+# UI 框架
+PySide6>=6.6.0
+
+# SSH/SFTP 通信
+paramiko>=3.4.0
+
+# 数据库 ORM
+SQLAlchemy>=2.0.0
+
+# 密码加密
+cryptography>=42.0.0
+
+# 日志增强（彩色输出）
+colorlog>=6.8.0
+
+# 开发工具
+pytest>=8.0.0
+
+# 打包
+pyinstaller>=6.0.0

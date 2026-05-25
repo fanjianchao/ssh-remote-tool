@@ -41,6 +41,7 @@ class StepCard(QWidget):
     edit_requested = Signal(int)
     copy_requested = Signal(int)
     save_template_requested = Signal(int)
+    selected = Signal(int)
 
     STEP_ICONS = {
         "ssh_command": "⌨️",
@@ -58,7 +59,24 @@ class StepCard(QWidget):
         super().__init__(parent)
         self._index = index
         self._step_data = step_data
+        self._hovered = False
+        self._selected = False
         self._setup_ui()
+        # 强制将子控件的背景设为透明、边框去除，避免被局部样式分割
+        from PySide6.QtWidgets import QLabel, QPushButton, QCheckBox, QLineEdit
+        for cls in (QLabel, QPushButton, QCheckBox, QLineEdit):
+            for child in self.findChildren(cls):
+                existing = child.styleSheet() or ""
+                # 仅在未显式设置背景和边框时追加，保留已有颜色/字体等样式
+                if "background" not in existing and "border" not in existing:
+                    child.setStyleSheet(existing + "background: transparent; border: none;")
+        # 确保 widget 本身负责绘制样式背景，避免子控件背景遮挡
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAutoFillBackground(True)
+        # 使能 hover / mouse tracking，确保 enter/leave 生效
+        self.setAttribute(Qt.WA_Hover, True)
+        self.setMouseTracking(True)
+        self._update_style()
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
@@ -112,15 +130,15 @@ class StepCard(QWidget):
         # 图标按钮通用样式（纯图标，正方形）
         icon_btn_style = """
             QPushButton {
-                background-color: #E8E8E8;
-                border: 1px solid #D0D0D0;
+                background-color: transparent;
+                border: none;
                 border-radius: 4px;
                 font-size: 14px;
                 padding: 0px;
             }
             QPushButton:hover {
-                background-color: #D0D0D0;
-                border-color: #1976D2;
+                background-color: rgba(0,0,0,0.04);
+                border-color: rgba(0,0,0,0.06);
             }
         """
         icon_btn_size = 28
@@ -184,8 +202,8 @@ class StepCard(QWidget):
         self._btn_remove.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_remove.setStyleSheet("""
             QPushButton {
-                background-color: #FFEBEE;
-                border: 1px solid #EF9A9A;
+                background-color: transparent;
+                border: 1px solid transparent;
                 border-radius: 4px;
                 color: #E53935;
                 font-size: 14px;
@@ -193,8 +211,8 @@ class StepCard(QWidget):
                 padding: 0px;
             }
             QPushButton:hover {
-                background-color: #FFCDD2;
-                border-color: #E53935;
+                background-color: #FFEBEE;
+                border-color: #EF9A9A;
                 color: #C62828;
             }
         """)
@@ -202,16 +220,56 @@ class StepCard(QWidget):
         layout.addWidget(self._btn_remove)
 
         # 卡片样式
-        self.setStyleSheet("""
-            StepCard {
-                background-color: #F5F5F5;
-                border: 1px solid #E0E0E0;
-                border-radius: 6px;
-            }
-        """)
+        # 样式通过 _update_style 控制（响应 hover/selected）
 
         # 双击卡片打开编辑
         self.mouseDoubleClickEvent = self._on_double_click
+
+    def enterEvent(self, event):
+        self._hovered = True
+        self._update_style()
+        return super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._hovered = False
+        self._update_style()
+        return super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.selected.emit(self._index)
+        return super().mousePressEvent(event)
+
+    def set_selected(self, val: bool):
+        self._selected = bool(val)
+        self._update_style()
+
+    def _update_style(self):
+        if self._selected:
+            base = (
+                "background-color: #E8F5E9;"
+                "border: 1px solid #1976D2;"
+                "border-radius: 6px;"
+            )
+        elif self._hovered:
+            base = (
+                "background-color: #E3F2FD;"
+                "border: 1px solid #64B5F6;"
+                "border-radius: 6px;"
+            )
+        else:
+            base = (
+                "background-color: #F5F5F5;"
+                "border: 1px solid #E0E0E0;"
+                "border-radius: 6px;"
+            )
+        # 去除子控件（标签/按钮等）的边框与背景，让卡片背景统一
+        child_rules = (
+            "QLabel { background: transparent; border: none; }"
+            "QPushButton { background: transparent; border: none; }"
+            "QCheckBox { background: transparent; border: none; }"
+        )
+        self.setStyleSheet(base + child_rules)
 
     def _build_tooltip(self) -> str:
         """构建步骤详情 tooltip"""
@@ -1305,7 +1363,8 @@ class TaskEditorView(QWidget):
                 w.setParent(None)
                 w.deleteLater()
 
-        # 添加步骤卡片
+        # 添加步骤卡片（保存引用以支持单选管理）
+        self._card_widgets = []
         for idx, step in enumerate(self._steps):
             card = StepCard(idx, step, self)
             card.remove_requested.connect(self._remove_step)
@@ -1314,9 +1373,26 @@ class TaskEditorView(QWidget):
             card.edit_requested.connect(self._edit_step)
             card.copy_requested.connect(self._copy_step)
             card.save_template_requested.connect(self._save_step_as_template)
+            card.selected.connect(self._on_step_selected)
             self._canvas_layout.addWidget(card)
+            self._card_widgets.append(card)
 
         self._canvas_layout.addStretch()
+
+    def _on_step_selected(self, index: int):
+        """单选：取消之前选中并设置当前卡片为选中样式"""
+        prev = getattr(self, "_selected_step_index", None)
+        if prev is not None and 0 <= prev < len(getattr(self, "_card_widgets", [])):
+            try:
+                self._card_widgets[prev].set_selected(False)
+            except Exception:
+                pass
+        self._selected_step_index = index
+        if 0 <= index < len(getattr(self, "_card_widgets", [])):
+            try:
+                self._card_widgets[index].set_selected(True)
+            except Exception:
+                pass
 
     def eventFilter(self, obj, event):
         """事件过滤器：处理任务列表空白取消选中和自定义 tooltip"""

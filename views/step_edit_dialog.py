@@ -117,10 +117,57 @@ class StepEditDialog(QDialog):
         self._timeout_input.setRange(0, 3600)
         self._timeout_input.setValue(DEFAULT_SSH_TIMEOUT)
         self._timeout_input.setSuffix(" 秒")
+        # 移除原生上下按钮，使用自定义小按钮以保证在各平台一致显示
+        self._timeout_input.setButtonSymbols(QSpinBox.NoButtons)
         self._timeout_input.setStyleSheet(self._input_style())
-        self._timeout_input.setFixedWidth(120)
-        ssh_grid.addWidget(self._timeout_input, 2, 1)
-        ssh_grid.setColumnStretch(1, 1)
+        self._timeout_input.setFixedWidth(88)
+        self._timeout_input.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        # 包装到一个带垂直按钮的容器中
+        timeout_widget = QWidget()
+        timeout_h = QHBoxLayout(timeout_widget)
+        timeout_h.setContentsMargins(0, 0, 0, 0)
+        timeout_h.setSpacing(4)
+        timeout_h.addWidget(self._timeout_input)
+        btn_col = QWidget()
+        btn_col.setFixedWidth(36)
+        btn_layout = QVBoxLayout(btn_col)
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+        btn_layout.setSpacing(2)
+        _spin_btn_style = (
+            "QPushButton {"
+            "  background-color: #D6D6D6;"
+            "  border: 1px solid #AAAAAA;"
+            "  color: #000000;"
+            "  font-family: Arial, sans-serif;"
+            "  font-size: 14px;"
+            "  font-weight: bold;"
+            "  border-radius: 3px;"
+            "  padding: 0px;"
+            "}"
+            "QPushButton:hover { background-color: #BBBBBB; }"
+            "QPushButton:pressed { background-color: #999999; }"
+        )
+        btn_up = QPushButton("+")
+        btn_up.setFixedSize(24, 18)
+        btn_up.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_up.setToolTip("增加超时时间")
+        btn_up.setStyleSheet(_spin_btn_style)
+        btn_down = QPushButton("\u2212")  # Unicode 减号 −，比连字符更宽更清晰
+        btn_down.setFixedSize(24, 18)
+        btn_down.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_down.setToolTip("减少超时时间")
+        btn_down.setStyleSheet(_spin_btn_style)
+        btn_layout.addWidget(btn_up)
+        btn_layout.addWidget(btn_down)
+        timeout_h.addWidget(btn_col)
+        timeout_widget.setMinimumWidth(180)
+        timeout_widget.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        ssh_grid.addWidget(timeout_widget, 2, 1)
+        # 按钮行为：调用 spinbox 的 stepUp/stepDown
+        btn_up.clicked.connect(lambda: self._timeout_input.stepUp())
+        btn_down.clicked.connect(lambda: self._timeout_input.stepDown())
+        # 不让第 1 列无限拉伸以避免按钮被挤出
+        ssh_grid.setColumnStretch(1, 0)
 
         # 工作目录
         workdir_label = QLabel("工作目录:")
@@ -179,6 +226,13 @@ class StepEditDialog(QDialog):
         strategy_layout = QVBoxLayout(strategy_group)
         strategy_layout.setSpacing(6)
 
+        # 使用标准 QCheckBox，外层容器保持结构一致
+        cont_widget = QWidget()
+        cont_layout = QHBoxLayout(cont_widget)
+        cont_layout.setContentsMargins(0, 0, 0, 0)
+        cont_layout.setSpacing(8)
+
+        # 使用标准 QCheckBox，QSS 放大 indicator 以确保视觉尺寸清晰
         self._continue_on_error_cb = QCheckBox("步骤执行失败后，继续执行下一步")
         self._continue_on_error_cb.setStyleSheet("""
             QCheckBox {
@@ -187,19 +241,27 @@ class StepEditDialog(QDialog):
                 spacing: 8px;
             }
             QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border: 1px solid #BDBDBD;
+                width: 18px;
+                height: 18px;
+                border: 2px solid #BDBDBD;
                 border-radius: 3px;
                 background-color: #FFFFFF;
+            }
+            QCheckBox::indicator:hover {
+                border-color: #1976D2;
             }
             QCheckBox::indicator:checked {
                 background-color: #1976D2;
                 border-color: #1976D2;
             }
+            QCheckBox::indicator:checked:hover {
+                background-color: #1565C0;
+                border-color: #1565C0;
+            }
         """)
-        strategy_layout.addWidget(self._continue_on_error_cb)
-
+        self._continue_on_error_cb.setChecked(False)
+        cont_layout.addWidget(self._continue_on_error_cb)
+        strategy_layout.addWidget(cont_widget)
         hint_label = QLabel("默认：步骤失败后停止该主机后续步骤")
         hint_label.setStyleSheet("color: #999999; font-size: 11px; margin-left: 24px;")
         strategy_layout.addWidget(hint_label)
@@ -366,6 +428,26 @@ class StepEditDialog(QDialog):
                 font-size: 12px;
             }
             QLineEdit:focus, QSpinBox:focus { border-color: #1976D2; }
+            /* Spinbox arrows */
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 18px;
+                subcontrol-origin: padding;
+                subcontrol-position: right;
+            }
+            QSpinBox::up-arrow {
+                image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A//www.w3.org/2000/svg'%20viewBox%3D'0%200%2024%2024'%3E%3Cpath%20d%3D'M6%2015l6-6%206%206'%20stroke%3D'%23333'%20stroke-width%3D'2'%20fill%3D'none'/%3E%3C/svg%3E");
+                width: 12px;
+                height: 12px;
+                background-repeat: no-repeat;
+                background-position: center;
+            }
+            QSpinBox::down-arrow {
+                image: url("data:image/svg+xml;utf8,%3Csvg%20xmlns%3D'http%3A//www.w3.org/2000/svg'%20viewBox%3D'0%200%2024%2024'%3E%3Cpath%20d%3D'M6%209l6%206%206-6'%20stroke%3D'%23333'%20stroke-width%3D'2'%20fill%3D'none'/%3E%3C/svg%3E");
+                width: 12px;
+                height: 12px;
+                background-repeat: no-repeat;
+                background-position: center;
+            }
         """
 
     @staticmethod
